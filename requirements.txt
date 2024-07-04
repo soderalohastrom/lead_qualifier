@@ -11,3 +11,4 @@ requests
 beautifulsoup4 
 pydantic
 numpy==1.24.3
+lxml[html_clean]
