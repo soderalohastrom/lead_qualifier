@@ -114,9 +114,14 @@ class LeadQualificationMachine:
 
     def extract_company_from_url(self, url):
         parsed_url = urlparse(url)
-        path_parts = parsed_url.path.split('/')
-        if len(path_parts) > 2:
-            return path_parts[2].replace('-', ' ').title()
+        path_parts = parsed_url.path.strip('/').split('/')
+        if len(path_parts) > 0:
+            if 'company' in path_parts:
+                company_index = path_parts.index('company') + 1
+                if company_index < len(path_parts):
+                    return path_parts[company_index].replace('-', ' ').title()
+            else:
+                return path_parts[-1].replace('-', ' ').title()
         return "Unknown"
 
     def instagram_scrape(self, username):
@@ -135,11 +140,13 @@ class LeadQualificationMachine:
     def facebook_scrape(self, profile_url):
         try:
             # Normalize the Facebook URL
-            if 'm.facebook.com' in profile_url:
-                profile_url = profile_url.replace('m.facebook.com', 'www.facebook.com')
-            elif 'facebook.com' not in profile_url:
+            if not profile_url.startswith('http'):
                 profile_url = f'https://www.facebook.com/{profile_url}'
-
+            profile_url = profile_url.replace('m.facebook.com', 'www.facebook.com')
+            
+            # Remove any trailing slashes and '/about'
+            profile_url = re.sub(r'(/about)?/?$', '', profile_url)
+            
             profile = get_profile(profile_url)
             return {
                 'friends': str(profile.get('Friends', 'Unknown')),
@@ -149,10 +156,9 @@ class LeadQualificationMachine:
         except Exception as e:
             logging.error(f"Error scraping Facebook profile {profile_url}: {e}")
             return {"error": f"Facebook scraping failed: {str(e)}"}
-
     def twitter_scrape(self, username):
         if self.twitter_client is None:
-            return {"error": "Twitter API is not configured"}
+            return {"error": "Twitter API is not configured. Please check your .env file for Twitter credentials."}
         try:
             # Lookup user by username
             user = self.twitter_client.get_user(username=username, 
@@ -163,7 +169,7 @@ class LeadQualificationMachine:
                 
                 # Get recent tweets
                 tweets = self.twitter_client.get_users_tweets(user_data.id, max_results=10, 
-                                                              tweet_fields=['created_at', 'public_metrics'])
+                                                            tweet_fields=['created_at', 'public_metrics'])
                 recent_tweets = [tweet.text for tweet in tweets.data] if tweets.data else []
 
                 return {
@@ -180,56 +186,60 @@ class LeadQualificationMachine:
             else:
                 return {"error": "User not found"}
         except TweepyException as e:
-            logging.error(f"Error scraping Twitter profile {username}: {e}")
-            return {"error": f"Twitter scraping failed: {str(e)}"}
-    def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
-        score = 0
-        reasons = []
+            if 'Authorization' in str(e):
+                logging.error(f"Twitter API authorization error: {e}")
+                return {"error": "Twitter API authorization failed. Please check your API keys and tokens."}
+            else:
+                logging.error(f"Error scraping Twitter profile {username}: {e}")
+                return {"error": f"Twitter scraping failed: {str(e)}"}
+def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
+    score = 0
+    reasons = []
 
-        # Income scoring
-        income_str = lead.income.replace('$', '').replace('K', '000').replace('M', '000000')
-        income_value = float(income_str.split(' - ')[0]) if ' - ' in income_str else float(income_str)
-        income_score = min(income_value / 5000, 30)  # Increased max points for income
-        score += income_score
-        reasons.append(f"Income: +{income_score:.1f} points")
+    # Income scoring
+    income_str = lead.income.replace('$', '').replace('K', '000').replace('M', '000000')
+    income_value = float(income_str.split(' - ')[0]) if ' - ' in income_str else float(income_str)
+    income_score = min(income_value / 5000, 30)  # Increased max points for income
+    score += income_score
+    reasons.append(f"Income: +{income_score:.1f} points")
 
-        # Work email scoring
-        if work_email_domain:
-            work_email_score = 15
-            score += work_email_score
-            reasons.append(f"Work email domain ({work_email_domain}): +{work_email_score} points")
+    # Work email scoring
+    if work_email_domain:
+        work_email_score = 15
+        score += work_email_score
+        reasons.append(f"Work email domain ({work_email_domain}): +{work_email_score} points")
 
-        # LinkedIn scoring
-        if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
-            linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 25)
-            score += linkedin_score
-            reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
-        elif 'employment' in linkedin_data:
-            fallback_score = 5
-            score += fallback_score
-            reasons.append(f"LinkedIn fallback (derived from URL): +{fallback_score} points")
+    # LinkedIn scoring
+    if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
+        linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 25)
+        score += linkedin_score
+        reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
+    elif 'employment' in linkedin_data:
+        fallback_score = 5
+        score += fallback_score
+        reasons.append(f"LinkedIn fallback (derived from URL): +{fallback_score} points")
 
-        # Social media influence scoring
-        if isinstance(instagram_data, dict) and 'followers' in instagram_data:
-            insta_score = min(instagram_data['followers'] / 500, 10)  # Adjusted for more points
-            score += insta_score
-            reasons.append(f"Instagram followers: +{insta_score:.1f} points")
-        
-        if isinstance(facebook_data, dict) and 'friends' in facebook_data:
-            try:
-                friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
-                fb_score = min(friends / 50, 10)  # Adjusted for more points
-                score += fb_score
-                reasons.append(f"Facebook friends: +{fb_score:.1f} points")
-            except ValueError:
-                logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
-        
-        if isinstance(twitter_data, dict) and 'followers' in twitter_data:
-            twitter_score = min(twitter_data['followers'] / 500, 10)  # Adjusted for more points
-            score += twitter_score
-            reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
+    # Social media influence scoring
+    if isinstance(instagram_data, dict) and 'followers' in instagram_data:
+        insta_score = min(instagram_data['followers'] / 500, 10)  # Adjusted for more points
+        score += insta_score
+        reasons.append(f"Instagram followers: +{insta_score:.1f} points")
+    
+    if isinstance(facebook_data, dict) and 'friends' in facebook_data:
+        try:
+            friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
+            fb_score = min(friends / 50, 10)  # Adjusted for more points
+            score += fb_score
+            reasons.append(f"Facebook friends: +{fb_score:.1f} points")
+        except ValueError:
+            logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
+    
+    if isinstance(twitter_data, dict) and 'followers' in twitter_data:
+        twitter_score = min(twitter_data['followers'] / 500, 10)  # Adjusted for more points
+        score += twitter_score
+        reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
 
-        return min(score, 100), reasons
+    return min(score, 100), reasons
 
     def generate_summary(self, lead, score, reasons, employment, linkedin_data, instagram_data, facebook_data, twitter_data):
         summary = f"Lead Qualification Summary for {lead.name}:\n\n"
@@ -267,6 +277,14 @@ class LeadQualificationMachine:
                     summary += f"  Recent tweet sample: '{twitter_data['recent_tweets'][0]}'\n"
             else:
                 summary += f"- Twitter: {twitter_data.get('error', 'Unknown error')}\n"
+
+        summary += "\nRecommendations:\n"
+        if score < 30:
+            summary += "- This lead may need further qualification. Consider reaching out for more information.\n"
+        elif score < 60:
+            summary += "- This lead shows potential. Follow up with personalized communication.\n"
+        else:
+            summary += "- High-value lead! Prioritize for immediate follow-up and tailored engagement.\n"
 
         return summary
 
