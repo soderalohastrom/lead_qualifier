@@ -1,5 +1,4 @@
 import os
-import re
 from dotenv import load_dotenv
 import tweepy
 import tldextract
@@ -10,7 +9,7 @@ import logging
 from linkedin_api import Linkedin
 import instaloader
 from facebook_scraper import get_profile
-from urllib.parse import urlparse
+import snscrape.modules.twitter as sntwitter
 
 # Load environment variables from .env file
 load_dotenv()
@@ -55,13 +54,18 @@ class LeadQualificationMachine:
         self.insta_loader = instaloader.Instaloader()
         
         # Twitter authentication
-        twitter_bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
+        twitter_api_key = os.getenv('TWITTER_API_KEY')
+        twitter_api_secret = os.getenv('TWITTER_API_SECRET')
+        twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
+        twitter_access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
         
-        if twitter_bearer_token:
-            self.twitter_client = tweepy.Client(bearer_token=twitter_bearer_token)
+        if all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
+            self.twitter_auth = tweepy.OAuthHandler(twitter_api_key, twitter_api_secret)
+            self.twitter_auth.set_access_token(twitter_access_token, twitter_access_token_secret)
+            self.twitter_api = tweepy.API(self.twitter_auth)
         else:
-            logging.warning("Twitter bearer token not provided. Twitter scraping will be limited.")
-            self.twitter_client = None
+            logging.warning("Twitter credentials not fully provided. Twitter scraping will be limited.")
+            self.twitter_api = None
 
         # LinkedIn initialization
         linkedin_email = os.getenv('LINKEDIN_EMAIL')
@@ -87,7 +91,7 @@ class LeadQualificationMachine:
 
     def linkedin_scrape(self, profile_url):
         if self.linkedin is None:
-            return {"error": "LinkedIn scraping is not configured", "employment": self.extract_company_from_url(profile_url)}
+            return {"error": "LinkedIn scraping is not configured"}
         try:
             profile = self.linkedin.get_profile(profile_url)
             employment = profile.get('experiences', [{}])[0].get('companyName', 'Unknown') if profile.get('experiences') else 'Unknown'
@@ -100,14 +104,7 @@ class LeadQualificationMachine:
             }
         except Exception as e:
             logging.error(f"Error scraping LinkedIn profile {profile_url}: {e}")
-            return {"error": str(e), "employment": self.extract_company_from_url(profile_url)}
-
-    def extract_company_from_url(self, url):
-        parsed_url = urlparse(url)
-        path_parts = parsed_url.path.split('/')
-        if len(path_parts) > 2:
-            return path_parts[2].replace('-', ' ').title()
-        return "Unknown"
+            return {"error": str(e)}
 
     def instagram_scrape(self, username):
         try:
@@ -124,12 +121,6 @@ class LeadQualificationMachine:
 
     def facebook_scrape(self, profile_url):
         try:
-            # Normalize the Facebook URL
-            if 'm.facebook.com' in profile_url:
-                profile_url = profile_url.replace('m.facebook.com', 'www.facebook.com')
-            elif 'facebook.com' not in profile_url:
-                profile_url = f'https://www.facebook.com/{profile_url}'
-
             profile = get_profile(profile_url)
             return {
                 'friends': str(profile.get('Friends', 'Unknown')),
@@ -138,40 +129,29 @@ class LeadQualificationMachine:
             }
         except Exception as e:
             logging.error(f"Error scraping Facebook profile {profile_url}: {e}")
-            return {"error": f"Facebook scraping failed: {str(e)}"}
+            return {"error": str(e)}
 
     def twitter_scrape(self, username):
-        if self.twitter_client is None:
+        if self.twitter_api is None:
             return {"error": "Twitter API is not configured"}
         try:
-            # Lookup user by username
-            user = self.twitter_client.get_user(username=username, 
-                                                user_fields=['public_metrics', 'description', 'created_at'])
+            user = self.twitter_api.get_user(screen_name=username)
+            tweets = []
+            for i, tweet in enumerate(sntwitter.TwitterSearchScraper(f'from:{username}').get_items()):
+                if i >= 10:  # Limit to 10 tweets for performance
+                    break
+                tweets.append(tweet.content)
             
-            if user.data:
-                user_data = user.data
-                
-                # Get recent tweets
-                tweets = self.twitter_client.get_users_tweets(user_data.id, max_results=10, 
-                                                              tweet_fields=['created_at', 'public_metrics'])
-                recent_tweets = [tweet.text for tweet in tweets.data] if tweets.data else []
-
-                return {
-                    'id': user_data.id,
-                    'name': user_data.name,
-                    'username': user_data.username,
-                    'followers': user_data.public_metrics['followers_count'],
-                    'following': user_data.public_metrics['following_count'],
-                    'tweets_count': user_data.public_metrics['tweet_count'],
-                    'description': user_data.description,
-                    'created_at': user_data.created_at,
-                    'recent_tweets': recent_tweets
-                }
-            else:
-                return {"error": "User not found"}
-        except tweepy.TweepError as e:
+            return {
+                'followers': user.followers_count,
+                'following': user.friends_count,
+                'tweets_count': user.statuses_count,
+                'description': user.description,
+                'recent_tweets': tweets
+            }
+        except Exception as e:
             logging.error(f"Error scraping Twitter profile {username}: {e}")
-            return {"error": f"Twitter scraping failed: {str(e)}"}
+            return {"error": str(e)}
 
     def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
         score = 0
@@ -186,9 +166,8 @@ class LeadQualificationMachine:
 
         # Work email scoring
         if work_email_domain:
-            work_email_score = 10
-            score += work_email_score
-            reasons.append(f"Work email domain ({work_email_domain}): +{work_email_score} points")
+            score += 10
+            reasons.append(f"Work email domain ({work_email_domain}): +10 points")
 
         # LinkedIn scoring
         if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
@@ -212,11 +191,9 @@ class LeadQualificationMachine:
                 logging.warning(f"Invalid Facebook friends value: {facebook_data.get('friends')}")
         
         if isinstance(twitter_data, dict) and 'error' not in twitter_data:
-            twitter_score = min(twitter_data.get('followers', 0) / 1000, 5)  # Up to 5 points for followers
-            twitter_score += min(twitter_data.get('tweets_count', 0) / 1000, 3)  # Up to 3 points for tweet count
-            twitter_score += 2 if len(twitter_data.get('recent_tweets', [])) >= 5 else 0  # 2 points if active recently
+            twitter_score = min(twitter_data.get('followers', 0) / 1000, 5)
             score += twitter_score
-            reasons.append(f"Twitter profile: +{twitter_score:.1f} points")
+            reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
 
         return min(score, 100), reasons
 
@@ -229,31 +206,16 @@ class LeadQualificationMachine:
             summary += f"- {reason}\n"
         summary += "\nProfile Highlights:\n"
         
-        if isinstance(linkedin_data, dict):
-            if 'error' not in linkedin_data:
-                summary += f"- LinkedIn: {len(linkedin_data.get('positions', []))} positions, {len(linkedin_data.get('skills', []))} skills\n"
-            else:
-                summary += f"- LinkedIn: {linkedin_data['error']}\n"
-        
-        if isinstance(instagram_data, dict):
-            if 'error' not in instagram_data:
-                summary += f"- Instagram: {instagram_data['followers']} followers, {instagram_data['posts_count']} posts\n"
-            else:
-                summary += f"- Instagram: {instagram_data['error']}\n"
-        
-        if isinstance(facebook_data, dict):
-            if 'error' not in facebook_data:
-                summary += f"- Facebook: {facebook_data['friends']} friends, {facebook_data['posts_count']} posts\n"
-            else:
-                summary += f"- Facebook: {facebook_data['error']}\n"
-        
-        if isinstance(twitter_data, dict):
-            if 'error' not in twitter_data:
-                summary += f"- Twitter: {twitter_data['followers']} followers, {twitter_data['tweets_count']} tweets\n"
-                if twitter_data.get('recent_tweets'):
-                    summary += f"  Recent tweet sample: '{twitter_data['recent_tweets'][0]}'\n"
-            else:
-                summary += f"- Twitter: {twitter_data['error']}\n"
+        if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
+            summary += f"- LinkedIn: {len(linkedin_data.get('positions', []))} positions, {len(linkedin_data.get('skills', []))} skills\n"
+        if isinstance(instagram_data, dict) and 'error' not in instagram_data:
+            summary += f"- Instagram: {instagram_data.get('followers', 0)} followers, {instagram_data.get('posts_count', 0)} posts\n"
+        if isinstance(facebook_data, dict) and 'error' not in facebook_data:
+            summary += f"- Facebook: {facebook_data.get('friends', 'Unknown')} friends, {facebook_data.get('posts_count', 0)} posts\n"
+        if isinstance(twitter_data, dict) and 'error' not in twitter_data:
+            summary += f"- Twitter: {twitter_data.get('followers', 0)} followers, {twitter_data.get('tweets_count', 0)} tweets\n"
+            if twitter_data.get('recent_tweets'):
+                summary += f"  Recent tweet sample: '{twitter_data['recent_tweets'][0]}'\n"
 
         return summary
 
