@@ -11,6 +11,7 @@ from linkedin_api import Linkedin
 import instaloader
 from facebook_scraper import get_profile
 from urllib.parse import urlparse
+from tweepy.errors import TweepyException
 
 # Load environment variables from .env file
 load_dotenv()
@@ -169,10 +170,9 @@ class LeadQualificationMachine:
                 }
             else:
                 return {"error": "User not found"}
-        except tweepy.TweepError as e:
+        except TweepyException as e:
             logging.error(f"Error scraping Twitter profile {username}: {e}")
             return {"error": f"Twitter scraping failed: {str(e)}"}
-
     def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
         score = 0
         reasons = []
