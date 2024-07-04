@@ -95,20 +95,20 @@ class LeadQualificationMachine:
         return None
     def linkedin_scrape(self, profile_url):
         if self.linkedin is None:
-            return None
+            return {"error": "LinkedIn scraping is not configured"}
         try:
             profile = self.linkedin.get_profile(profile_url)
             employment = profile.get('experiences', [{}])[0].get('companyName', 'Unknown') if profile.get('experiences') else 'Unknown'
             return {
                 'employment': employment,
-                'industry': profile.get('industryName'),
-                'positions': profile.get('positions'),
-                'education': profile.get('education'),
-                'skills': profile.get('skills')
+                'industry': profile.get('industryName', 'Unknown'),
+                'positions': profile.get('positions', []),
+                'education': profile.get('education', []),
+                'skills': profile.get('skills', [])
             }
         except Exception as e:
             logging.error(f"Error scraping LinkedIn profile {profile_url}: {e}")
-            return None
+            return {"error": str(e)}
 
     def instagram_scrape(self, username):
         try:
@@ -127,22 +127,22 @@ class LeadQualificationMachine:
         try:
             profile = get_profile(profile_url)
             return {
-                'friends': profile.get('Friends'),
-                'about': profile.get('About'),
+                'friends': profile.get('Friends', 'Unknown'),
+                'about': profile.get('About', 'No information available'),
                 'posts_count': len(profile.get('Posts', []))
             }
         except Exception as e:
             logging.error(f"Error scraping Facebook profile {profile_url}: {e}")
-            return None
+            return {"error": str(e)}
 
     def twitter_scrape(self, username):
         if self.twitter_api is None:
-            return None
+            return {"error": "Twitter API is not configured"}
         try:
             user = self.twitter_api.get_user(screen_name=username)
             tweets = []
             for i, tweet in enumerate(sntwitter.TwitterSearchScraper(f'from:{username}').get_items()):
-                if i > 100:
+                if i > 10:  # Limit to 10 tweets for performance
                     break
                 tweets.append(tweet.content)
             
@@ -155,7 +155,7 @@ class LeadQualificationMachine:
             }
         except Exception as e:
             logging.error(f"Error scraping Twitter profile {username}: {e}")
-            return None
+            return {"error": str(e)}
 
     def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
         score = 0
@@ -218,15 +218,15 @@ class LeadQualificationMachine:
         return summary
 
     def qualify_lead(self, lead: LeadInput) -> QualifiedLead:
-        linkedin_data = self.linkedin_scrape(lead.linkedin_url) if lead.linkedin_url and self.linkedin else None
-        instagram_data = self.instagram_scrape(lead.instagram_username) if lead.instagram_username else None
-        facebook_data = self.facebook_scrape(lead.facebook_url) if lead.facebook_url else None
-        twitter_data = self.twitter_scrape(lead.twitter_username) if lead.twitter_username else None
+        linkedin_data = self.linkedin_scrape(lead.linkedin_url) if lead.linkedin_url else {"error": "No LinkedIn URL provided"}
+        instagram_data = self.instagram_scrape(lead.instagram_username) if lead.instagram_username else {"error": "No Instagram username provided"}
+        facebook_data = self.facebook_scrape(lead.facebook_url) if lead.facebook_url else {"error": "No Facebook URL provided"}
+        twitter_data = self.twitter_scrape(lead.twitter_username) if lead.twitter_username else {"error": "No Twitter username provided"}
 
         work_email_domain = self.analyze_email_domain(lead.email)
         score, reasons = self.calculate_score(lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain)
 
-        employment = linkedin_data['employment'] if linkedin_data and 'employment' in linkedin_data else work_email_domain or "Unknown"
+        employment = linkedin_data.get('employment', 'Unknown') if 'employment' in linkedin_data else work_email_domain or "Unknown"
 
         summary = self.generate_summary(lead, score, reasons, employment, linkedin_data, instagram_data, facebook_data, twitter_data)
 
