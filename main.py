@@ -192,54 +192,54 @@ class LeadQualificationMachine:
             else:
                 logging.error(f"Error scraping Twitter profile {username}: {e}")
                 return {"error": f"Twitter scraping failed: {str(e)}"}
-def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
-    score = 0
-    reasons = []
+    def calculate_score(self, lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain):
+        score = 0
+        reasons = []
 
-    # Income scoring
-    income_str = lead.income.replace('$', '').replace('K', '000').replace('M', '000000')
-    income_value = float(income_str.split(' - ')[0]) if ' - ' in income_str else float(income_str)
-    income_score = min(income_value / 5000, 30)  # Increased max points for income
-    score += income_score
-    reasons.append(f"Income: +{income_score:.1f} points")
+        # Income scoring
+        income_str = lead.income.replace('$', '').replace('K', '000').replace('M', '000000')
+        income_value = float(income_str.split(' - ')[0]) if ' - ' in income_str else float(income_str)
+        income_score = min(income_value / 5000, 30)  # Increased max points for income
+        score += income_score
+        reasons.append(f"Income: +{income_score:.1f} points")
 
-    # Work email scoring
-    if work_email_domain:
-        work_email_score = 15
-        score += work_email_score
-        reasons.append(f"Work email domain ({work_email_domain}): +{work_email_score} points")
+        # Work email scoring
+        if work_email_domain:
+            work_email_score = 15
+            score += work_email_score
+            reasons.append(f"Work email domain ({work_email_domain}): +{work_email_score} points")
 
-    # LinkedIn scoring
-    if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
-        linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 25)
-        score += linkedin_score
-        reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
-    elif 'employment' in linkedin_data:
-        fallback_score = 5
-        score += fallback_score
-        reasons.append(f"LinkedIn fallback (derived from URL): +{fallback_score} points")
+        # LinkedIn scoring
+        if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
+            linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 25)
+            score += linkedin_score
+            reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
+        elif 'employment' in linkedin_data:
+            fallback_score = 5
+            score += fallback_score
+            reasons.append(f"LinkedIn fallback (derived from URL): +{fallback_score} points")
 
-    # Social media influence scoring
-    if isinstance(instagram_data, dict) and 'followers' in instagram_data:
-        insta_score = min(instagram_data['followers'] / 500, 10)  # Adjusted for more points
-        score += insta_score
-        reasons.append(f"Instagram followers: +{insta_score:.1f} points")
-    
-    if isinstance(facebook_data, dict) and 'friends' in facebook_data:
-        try:
-            friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
-            fb_score = min(friends / 50, 10)  # Adjusted for more points
-            score += fb_score
-            reasons.append(f"Facebook friends: +{fb_score:.1f} points")
-        except ValueError:
-            logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
-    
-    if isinstance(twitter_data, dict) and 'followers' in twitter_data:
-        twitter_score = min(twitter_data['followers'] / 500, 10)  # Adjusted for more points
-        score += twitter_score
-        reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
+        # Social media influence scoring
+        if isinstance(instagram_data, dict) and 'followers' in instagram_data:
+            insta_score = min(instagram_data['followers'] / 500, 10)  # Adjusted for more points
+            score += insta_score
+            reasons.append(f"Instagram followers: +{insta_score:.1f} points")
+        
+        if isinstance(facebook_data, dict) and 'friends' in facebook_data:
+            try:
+                friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
+                fb_score = min(friends / 50, 10)  # Adjusted for more points
+                score += fb_score
+                reasons.append(f"Facebook friends: +{fb_score:.1f} points")
+            except ValueError:
+                logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
+        
+        if isinstance(twitter_data, dict) and 'followers' in twitter_data:
+            twitter_score = min(twitter_data['followers'] / 500, 10)  # Adjusted for more points
+            score += twitter_score
+            reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
 
-    return min(score, 100), reasons
+        return min(score, 100), reasons
 
     def generate_summary(self, lead, score, reasons, employment, linkedin_data, instagram_data, facebook_data, twitter_data):
         summary = f"Lead Qualification Summary for {lead.name}:\n\n"
