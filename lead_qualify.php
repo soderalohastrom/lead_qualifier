@@ -5,22 +5,22 @@ use GuzzleHttp\Client;
 use GuzzleHttp\Exception\RequestException;
 
 // FastAPI endpoint URL
-$apiUrl = 'http://localhost:8000/qualify';
+$apiUrl = 'https://lead-qualifier-67eh.onrender.com/qualify';
 
 // Sample lead data
 $leadData = [
     [
         "id" => 1,
-        "name" => "John Doe",
-        "age" => 30,
-        "email" => "john@example.com",
-        "city" => "New York",
-        "state" => "NY",
-        "income" => "$150K",
-        "linkedin_url" => "https://www.linkedin.com/in/johndoe",
-        "instagram_username" => "johndoe",
-        "facebook_url" => "https://www.facebook.com/johndoe",
-        "twitter_username" => "johndoe"
+        "name" => "Scott Soderstrom",
+        "age" => 58,
+        "email" => "ssoderstrom@gmail.com",
+        "city" => "Seattle",
+        "state" => "WA",
+        "income" => "$85K",
+        "linkedin_url" => "https://www.linkedin.com/in/soderalohastrom/",
+        "instagram_username" => "soderalohastrom",
+        "facebook_url" => "https://www.facebook.com/scott.soderstrom/",
+        "twitter_username" => "soderalohastom"
     ],
     // You can add more lead entries here
 ];
@@ -29,27 +29,32 @@ $leadData = [
 $client = new Client();
 
 try {
-    // Send POST request to the FastAPI endpoint
     $response = $client->post($apiUrl, [
         'json' => $leadData
     ]);
 
-    // Get the response body
     $body = $response->getBody();
-
-    // Parse the JSON response
     $qualifiedLeads = json_decode($body, true);
 
-    // Display the results
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        throw new Exception("Failed to parse JSON response: " . json_last_error_msg());
+    }
+
+    if (!is_array($qualifiedLeads)) {
+        throw new Exception("Unexpected response format");
+    }
+
     echo "<h1>Qualified Leads</h1>";
     foreach ($qualifiedLeads as $lead) {
-        echo "<h2>{$lead['name']}</h2>";
-        echo "<p>Score: {$lead['score']}</p>";
-        echo "<p>Employment: {$lead['employment']}</p>";
-        echo "<pre>{$lead['qualification_summary']}</pre>";
+        echo "<h2>" . htmlspecialchars($lead['name']) . "</h2>";
+        echo "<p>Score: " . htmlspecialchars($lead['score']) . "</p>";
+        echo "<p>Employment: " . htmlspecialchars($lead['employment']) . "</p>";
+        echo "<pre>" . htmlspecialchars($lead['qualification_summary']) . "</pre>";
         echo "<hr>";
     }
 } catch (RequestException $e) {
-    echo "Error: " . $e->getMessage();
+    echo "HTTP Request Error: " . htmlspecialchars($e->getMessage());
+} catch (Exception $e) {
+    echo "Error: " . htmlspecialchars($e->getMessage());
 }
 ?>
