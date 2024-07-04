@@ -56,7 +56,6 @@ class QualifiedLead(BaseModel):
 
 class LeadQualificationMachine:
     def __init__(self):
-        self.linkedin = Linkedin(os.getenv('LINKEDIN_EMAIL'), os.getenv('LINKEDIN_PASSWORD'))
         self.insta_loader = instaloader.Instaloader()
         
         # Twitter authentication
@@ -65,22 +64,32 @@ class LeadQualificationMachine:
         twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
         twitter_access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
         
-        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
-            raise ValueError("Twitter API credentials are not set in the .env file")
-        
-        self.twitter_auth = tweepy.OAuthHandler(twitter_api_key, twitter_api_secret)
-        self.twitter_auth.set_access_token(twitter_access_token, twitter_access_token_secret)
-        self.twitter_api = tweepy.API(self.twitter_auth)
+        if all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
+            self.twitter_auth = tweepy.OAuthHandler(twitter_api_key, twitter_api_secret)
+            self.twitter_auth.set_access_token(twitter_access_token, twitter_access_token_secret)
+            self.twitter_api = tweepy.API(self.twitter_auth)
+        else:
+            logging.warning("Twitter credentials not fully provided. Twitter scraping will be limited.")
+            self.twitter_api = None
+
+        # Make LinkedIn initialization optional
+        linkedin_email = os.getenv('LINKEDIN_EMAIL')
+        linkedin_password = os.getenv('LINKEDIN_PASSWORD')
+        if linkedin_email and linkedin_password:
+            try:
+                self.linkedin = Linkedin(linkedin_email, linkedin_password)
+            except Exception as e:
+                logging.error(f"Failed to initialize LinkedIn: {str(e)}")
+                self.linkedin = None
+        else:
+            logging.info("LinkedIn credentials not provided. LinkedIn scraping will be skipped.")
+            self.linkedin = None
         
         self.personal_email_domains = set(['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'])
 
-    def analyze_email_domain(self, email):
-        _, domain, _ = tldextract.extract(email.split('@')[1])
-        if domain not in self.personal_email_domains:
-            return domain
-        return None
-
     def linkedin_scrape(self, profile_url):
+        if self.linkedin is None:
+            return None
         try:
             profile = self.linkedin.get_profile(profile_url)
             employment = profile.get('experiences', [{}])[0].get('companyName', 'Unknown') if profile.get('experiences') else 'Unknown'
@@ -121,6 +130,8 @@ class LeadQualificationMachine:
             return None
 
     def twitter_scrape(self, username):
+        if self.twitter_api is None:
+            return None
         try:
             user = self.twitter_api.get_user(screen_name=username)
             tweets = []
@@ -201,7 +212,7 @@ class LeadQualificationMachine:
         return summary
 
     def qualify_lead(self, lead: LeadInput) -> QualifiedLead:
-        linkedin_data = self.linkedin_scrape(lead.linkedin_url) if lead.linkedin_url else None
+        linkedin_data = self.linkedin_scrape(lead.linkedin_url) if lead.linkedin_url and self.linkedin else None
         instagram_data = self.instagram_scrape(lead.instagram_username) if lead.instagram_username else None
         facebook_data = self.facebook_scrape(lead.facebook_url) if lead.facebook_url else None
         twitter_data = self.twitter_scrape(lead.twitter_username) if lead.twitter_username else None
