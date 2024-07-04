@@ -1,4 +1,3 @@
-# pip install fastapi uvicorn pandas tldextract snscrape linkedin-api instaloader facebook-scraper tweepy requests beautifulsoup4 python-dotenv
 import os
 from dotenv import load_dotenv
 import tweepy
@@ -6,13 +5,10 @@ import tldextract
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-import pandas as pd
 import logging
 from linkedin_api import Linkedin
 import instaloader
 from facebook_scraper import get_profile
-import requests
-from bs4 import BeautifulSoup
 import snscrape.modules.twitter as sntwitter
 
 # Load environment variables from .env file
@@ -23,7 +19,6 @@ app = FastAPI(title="Lead Qualification Machine")
 # Configure logging
 logging.basicConfig(filename='lead_qualification.log', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
-
 
 class LeadInput(BaseModel):
     id: int
@@ -72,7 +67,7 @@ class LeadQualificationMachine:
             logging.warning("Twitter credentials not fully provided. Twitter scraping will be limited.")
             self.twitter_api = None
 
-        # Make LinkedIn initialization optional
+        # LinkedIn initialization
         linkedin_email = os.getenv('LINKEDIN_EMAIL')
         linkedin_password = os.getenv('LINKEDIN_PASSWORD')
         if linkedin_email and linkedin_password:
@@ -93,6 +88,7 @@ class LeadQualificationMachine:
         if domain not in self.personal_email_domains:
             return domain
         return None
+
     def linkedin_scrape(self, profile_url):
         if self.linkedin is None:
             return {"error": "LinkedIn scraping is not configured"}
@@ -121,19 +117,19 @@ class LeadQualificationMachine:
             }
         except Exception as e:
             logging.error(f"Error scraping Instagram profile {username}: {e}")
-            return None
+            return {"error": str(e)}
 
     def facebook_scrape(self, profile_url):
         try:
             profile = get_profile(profile_url)
             return {
-                'friends': str(profile.get('Friends', 'Unknown')),  # Convert to string
+                'friends': str(profile.get('Friends', 'Unknown')),
                 'about': profile.get('About', 'No information available'),
                 'posts_count': len(profile.get('Posts', []))
             }
         except Exception as e:
             logging.error(f"Error scraping Facebook profile {profile_url}: {e}")
-            return {"error": f"Facebook scraping failed: {str(e)}"}
+            return {"error": str(e)}
 
     def twitter_scrape(self, username):
         if self.twitter_api is None:
@@ -142,7 +138,7 @@ class LeadQualificationMachine:
             user = self.twitter_api.get_user(screen_name=username)
             tweets = []
             for i, tweet in enumerate(sntwitter.TwitterSearchScraper(f'from:{username}').get_items()):
-                if i > 10:  # Limit to 10 tweets for performance
+                if i >= 10:  # Limit to 10 tweets for performance
                     break
                 tweets.append(tweet.content)
             
@@ -174,26 +170,28 @@ class LeadQualificationMachine:
             reasons.append(f"Work email domain ({work_email_domain}): +10 points")
 
         # LinkedIn scoring
-        if linkedin_data:
+        if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
             linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 20)
             score += linkedin_score
             reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
 
         # Social media influence scoring
-        if isinstance(instagram_data, dict) and 'followers' in instagram_data:
-            insta_score = min(instagram_data['followers'] / 1000, 10)
+        if isinstance(instagram_data, dict) and 'error' not in instagram_data:
+            insta_score = min(instagram_data.get('followers', 0) / 1000, 10)
             score += insta_score
             reasons.append(f"Instagram followers: +{insta_score:.1f} points")
-        if isinstance(facebook_data, dict) and 'friends' in facebook_data:
+        
+        if isinstance(facebook_data, dict) and 'error' not in facebook_data:
             try:
-                friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
+                friends = int(facebook_data.get('friends', '0').replace(',', '')) if facebook_data.get('friends') != 'Unknown' else 0
                 fb_score = min(friends / 100, 5)
                 score += fb_score
                 reasons.append(f"Facebook friends: +{fb_score:.1f} points")
             except ValueError:
-                logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
-        if isinstance(twitter_data, dict) and 'followers' in twitter_data:
-            twitter_score = min(twitter_data['followers'] / 1000, 5)
+                logging.warning(f"Invalid Facebook friends value: {facebook_data.get('friends')}")
+        
+        if isinstance(twitter_data, dict) and 'error' not in twitter_data:
+            twitter_score = min(twitter_data.get('followers', 0) / 1000, 5)
             score += twitter_score
             reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
 
@@ -208,14 +206,14 @@ class LeadQualificationMachine:
             summary += f"- {reason}\n"
         summary += "\nProfile Highlights:\n"
         
-        if linkedin_data:
+        if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
             summary += f"- LinkedIn: {len(linkedin_data.get('positions', []))} positions, {len(linkedin_data.get('skills', []))} skills\n"
-        if instagram_data:
-            summary += f"- Instagram: {instagram_data['followers']} followers, {instagram_data['posts_count']} posts\n"
-        if facebook_data:
-            summary += f"- Facebook: {facebook_data['friends']} friends, {facebook_data['posts_count']} posts\n"
-        if twitter_data:
-            summary += f"- Twitter: {twitter_data['followers']} followers, {twitter_data['tweets_count']} tweets\n"
+        if isinstance(instagram_data, dict) and 'error' not in instagram_data:
+            summary += f"- Instagram: {instagram_data.get('followers', 0)} followers, {instagram_data.get('posts_count', 0)} posts\n"
+        if isinstance(facebook_data, dict) and 'error' not in facebook_data:
+            summary += f"- Facebook: {facebook_data.get('friends', 'Unknown')} friends, {facebook_data.get('posts_count', 0)} posts\n"
+        if isinstance(twitter_data, dict) and 'error' not in twitter_data:
+            summary += f"- Twitter: {twitter_data.get('followers', 0)} followers, {twitter_data.get('tweets_count', 0)} tweets\n"
             if twitter_data.get('recent_tweets'):
                 summary += f"  Recent tweet sample: '{twitter_data['recent_tweets'][0]}'\n"
 
@@ -230,7 +228,7 @@ class LeadQualificationMachine:
         work_email_domain = self.analyze_email_domain(lead.email)
         score, reasons = self.calculate_score(lead, linkedin_data, instagram_data, facebook_data, twitter_data, work_email_domain)
 
-        employment = linkedin_data.get('employment', 'Unknown') if 'employment' in linkedin_data else work_email_domain or "Unknown"
+        employment = linkedin_data.get('employment', 'Unknown') if isinstance(linkedin_data, dict) and 'error' not in linkedin_data else work_email_domain or "Unknown"
 
         summary = self.generate_summary(lead, score, reasons, employment, linkedin_data, instagram_data, facebook_data, twitter_data)
 
