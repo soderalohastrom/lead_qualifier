@@ -55,24 +55,24 @@ class LeadQualificationMachine:
     def __init__(self):
         self.insta_loader = instaloader.Instaloader()
         
-    # Twitter authentication
-    twitter_api_key = os.getenv('TWITTER_API_KEY')
-    twitter_api_secret = os.getenv('TWITTER_API_SECRET')
-    twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
-    twitter_access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
-    twitter_bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
-    
-    if all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret, twitter_bearer_token]):
-        self.twitter_client = tweepy.Client(
-            consumer_key=twitter_api_key, 
-            consumer_secret=twitter_api_secret,
-            access_token=twitter_access_token, 
-            access_token_secret=twitter_access_token_secret,
-            bearer_token=twitter_bearer_token
-        )
-    else:
-        logging.warning("Twitter credentials not fully provided. Twitter scraping will be limited.")
-        self.twitter_client = None
+        # Twitter authentication
+        twitter_api_key = os.getenv('TWITTER_API_KEY')
+        twitter_api_secret = os.getenv('TWITTER_API_SECRET')
+        twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
+        twitter_access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+        twitter_bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
+        
+        if all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret, twitter_bearer_token]):
+            self.twitter_client = tweepy.Client(
+                consumer_key=twitter_api_key, 
+                consumer_secret=twitter_api_secret,
+                access_token=twitter_access_token, 
+                access_token_secret=twitter_access_token_secret,
+                bearer_token=twitter_bearer_token
+            )
+        else:
+            logging.warning("Twitter credentials not fully provided. Twitter scraping will be limited.")
+            self.twitter_client = None
 
         # LinkedIn initialization
         linkedin_email = os.getenv('LINKEDIN_EMAIL')
@@ -88,7 +88,6 @@ class LeadQualificationMachine:
             self.linkedin = None
         
         self.personal_email_domains = set(['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'])
-
     def analyze_email_domain(self, email):
         extracted = tldextract.extract(email.split('@')[1])
         domain = extracted.domain + '.' + extracted.suffix
