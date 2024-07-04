@@ -55,14 +55,24 @@ class LeadQualificationMachine:
     def __init__(self):
         self.insta_loader = instaloader.Instaloader()
         
-        # Twitter authentication
-        twitter_bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
-        
-        if twitter_bearer_token:
-            self.twitter_client = tweepy.Client(bearer_token=twitter_bearer_token)
-        else:
-            logging.warning("Twitter bearer token not provided. Twitter scraping will be limited.")
-            self.twitter_client = None
+    # Twitter authentication
+    twitter_api_key = os.getenv('TWITTER_API_KEY')
+    twitter_api_secret = os.getenv('TWITTER_API_SECRET')
+    twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
+    twitter_access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+    twitter_bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
+    
+    if all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret, twitter_bearer_token]):
+        self.twitter_client = tweepy.Client(
+            consumer_key=twitter_api_key, 
+            consumer_secret=twitter_api_secret,
+            access_token=twitter_access_token, 
+            access_token_secret=twitter_access_token_secret,
+            bearer_token=twitter_bearer_token
+        )
+    else:
+        logging.warning("Twitter credentials not fully provided. Twitter scraping will be limited.")
+        self.twitter_client = None
 
         # LinkedIn initialization
         linkedin_email = os.getenv('LINKEDIN_EMAIL')
@@ -180,43 +190,45 @@ class LeadQualificationMachine:
         # Income scoring
         income_str = lead.income.replace('$', '').replace('K', '000').replace('M', '000000')
         income_value = float(income_str.split(' - ')[0]) if ' - ' in income_str else float(income_str)
-        income_score = min(income_value / 10000, 50)
+        income_score = min(income_value / 5000, 30)  # Increased max points for income
         score += income_score
         reasons.append(f"Income: +{income_score:.1f} points")
 
         # Work email scoring
         if work_email_domain:
-            work_email_score = 10
+            work_email_score = 15
             score += work_email_score
             reasons.append(f"Work email domain ({work_email_domain}): +{work_email_score} points")
 
         # LinkedIn scoring
         if isinstance(linkedin_data, dict) and 'error' not in linkedin_data:
-            linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 20)
+            linkedin_score = min(len(linkedin_data.get('skills', [])) * 0.5 + len(linkedin_data.get('positions', [])) * 2, 25)
             score += linkedin_score
             reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
+        elif 'employment' in linkedin_data:
+            fallback_score = 5
+            score += fallback_score
+            reasons.append(f"LinkedIn fallback (derived from URL): +{fallback_score} points")
 
         # Social media influence scoring
-        if isinstance(instagram_data, dict) and 'error' not in instagram_data:
-            insta_score = min(instagram_data.get('followers', 0) / 1000, 10)
+        if isinstance(instagram_data, dict) and 'followers' in instagram_data:
+            insta_score = min(instagram_data['followers'] / 500, 10)  # Adjusted for more points
             score += insta_score
             reasons.append(f"Instagram followers: +{insta_score:.1f} points")
         
-        if isinstance(facebook_data, dict) and 'error' not in facebook_data:
+        if isinstance(facebook_data, dict) and 'friends' in facebook_data:
             try:
-                friends = int(facebook_data.get('friends', '0').replace(',', '')) if facebook_data.get('friends') != 'Unknown' else 0
-                fb_score = min(friends / 100, 5)
+                friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
+                fb_score = min(friends / 50, 10)  # Adjusted for more points
                 score += fb_score
                 reasons.append(f"Facebook friends: +{fb_score:.1f} points")
             except ValueError:
-                logging.warning(f"Invalid Facebook friends value: {facebook_data.get('friends')}")
+                logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
         
-        if isinstance(twitter_data, dict) and 'error' not in twitter_data:
-            twitter_score = min(twitter_data.get('followers', 0) / 1000, 5)  # Up to 5 points for followers
-            twitter_score += min(twitter_data.get('tweets_count', 0) / 1000, 3)  # Up to 3 points for tweet count
-            twitter_score += 2 if len(twitter_data.get('recent_tweets', [])) >= 5 else 0  # 2 points if active recently
+        if isinstance(twitter_data, dict) and 'followers' in twitter_data:
+            twitter_score = min(twitter_data['followers'] / 500, 10)  # Adjusted for more points
             score += twitter_score
-            reasons.append(f"Twitter profile: +{twitter_score:.1f} points")
+            reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
 
         return min(score, 100), reasons
 
@@ -233,27 +245,29 @@ class LeadQualificationMachine:
             if 'error' not in linkedin_data:
                 summary += f"- LinkedIn: {len(linkedin_data.get('positions', []))} positions, {len(linkedin_data.get('skills', []))} skills\n"
             else:
-                summary += f"- LinkedIn: {linkedin_data['error']}\n"
+                summary += f"- LinkedIn: {linkedin_data.get('error', 'Unknown error')}"
+                if 'employment' in linkedin_data:
+                    summary += f" (Derived employment: {linkedin_data['employment']})\n"
         
         if isinstance(instagram_data, dict):
             if 'error' not in instagram_data:
-                summary += f"- Instagram: {instagram_data['followers']} followers, {instagram_data['posts_count']} posts\n"
+                summary += f"- Instagram: {instagram_data.get('followers', 0)} followers, {instagram_data.get('posts_count', 0)} posts\n"
             else:
-                summary += f"- Instagram: {instagram_data['error']}\n"
+                summary += f"- Instagram: {instagram_data.get('error', 'Unknown error')}\n"
         
         if isinstance(facebook_data, dict):
             if 'error' not in facebook_data:
-                summary += f"- Facebook: {facebook_data['friends']} friends, {facebook_data['posts_count']} posts\n"
+                summary += f"- Facebook: {facebook_data.get('friends', 'Unknown')} friends, {facebook_data.get('posts_count', 0)} posts\n"
             else:
-                summary += f"- Facebook: {facebook_data['error']}\n"
+                summary += f"- Facebook: {facebook_data.get('error', 'Unknown error')}\n"
         
         if isinstance(twitter_data, dict):
             if 'error' not in twitter_data:
-                summary += f"- Twitter: {twitter_data['followers']} followers, {twitter_data['tweets_count']} tweets\n"
+                summary += f"- Twitter: {twitter_data.get('followers', 0)} followers, {twitter_data.get('tweets_count', 0)} tweets\n"
                 if twitter_data.get('recent_tweets'):
                     summary += f"  Recent tweet sample: '{twitter_data['recent_tweets'][0]}'\n"
             else:
-                summary += f"- Twitter: {twitter_data['error']}\n"
+                summary += f"- Twitter: {twitter_data.get('error', 'Unknown error')}\n"
 
         return summary
 
