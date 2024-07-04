@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pandas
+tldextract 
+snscrape 
+linkedin-api 
+instaloader 
+facebook-scraper 
+tweepy 
+requests 
+beautifulsoup4 
+pydantic
+numpy==1.24.3

@@ -1,26 +1,29 @@
-# pip install fastapi uvicorn pandas tldextract snscrape linkedin-api instaloader facebook-scraper tweepy requests beautifulsoup4
-
+# pip install fastapi uvicorn pandas tldextract snscrape linkedin-api instaloader facebook-scraper tweepy requests beautifulsoup4 python-dotenv
+import os
+from dotenv import load_dotenv
+import tweepy
 import tldextract
-from collections import Counter
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import pandas as pd
 import logging
-import sqlite3
 from linkedin_api import Linkedin
 import instaloader
 from facebook_scraper import get_profile
-import tweepy
 import requests
 from bs4 import BeautifulSoup
 import snscrape.modules.twitter as sntwitter
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = FastAPI(title="Lead Qualification Machine")
 
 # Configure logging
 logging.basicConfig(filename='lead_qualification.log', level=logging.INFO,
                     format='%(asctime)s:%(levelname)s:%(message)s')
+
 
 class LeadInput(BaseModel):
     id: int
@@ -53,11 +56,22 @@ class QualifiedLead(BaseModel):
 
 class LeadQualificationMachine:
     def __init__(self):
-        self.linkedin = Linkedin('your_linkedin_email', 'your_linkedin_password')
+        self.linkedin = Linkedin(os.getenv('LINKEDIN_EMAIL'), os.getenv('LINKEDIN_PASSWORD'))
         self.insta_loader = instaloader.Instaloader()
-        self.twitter_auth = tweepy.OAuthHandler("consumer_key", "consumer_secret")
-        self.twitter_auth.set_access_token("access_token", "access_token_secret")
+        
+        # Twitter authentication
+        twitter_api_key = os.getenv('TWITTER_API_KEY')
+        twitter_api_secret = os.getenv('TWITTER_API_SECRET')
+        twitter_access_token = os.getenv('TWITTER_ACCESS_TOKEN')
+        twitter_access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+        
+        if not all([twitter_api_key, twitter_api_secret, twitter_access_token, twitter_access_token_secret]):
+            raise ValueError("Twitter API credentials are not set in the .env file")
+        
+        self.twitter_auth = tweepy.OAuthHandler(twitter_api_key, twitter_api_secret)
+        self.twitter_auth.set_access_token(twitter_access_token, twitter_access_token_secret)
         self.twitter_api = tweepy.API(self.twitter_auth)
+        
         self.personal_email_domains = set(['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'])
 
     def analyze_email_domain(self, email):
@@ -229,4 +243,4 @@ async def qualify_leads(leads: List[LeadInput]):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=9990)
