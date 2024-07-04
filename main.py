@@ -127,13 +127,13 @@ class LeadQualificationMachine:
         try:
             profile = get_profile(profile_url)
             return {
-                'friends': profile.get('Friends', 'Unknown'),
+                'friends': str(profile.get('Friends', 'Unknown')),  # Convert to string
                 'about': profile.get('About', 'No information available'),
                 'posts_count': len(profile.get('Posts', []))
             }
         except Exception as e:
             logging.error(f"Error scraping Facebook profile {profile_url}: {e}")
-            return {"error": str(e)}
+            return {"error": f"Facebook scraping failed: {str(e)}"}
 
     def twitter_scrape(self, username):
         if self.twitter_api is None:
@@ -180,15 +180,19 @@ class LeadQualificationMachine:
             reasons.append(f"LinkedIn profile: +{linkedin_score:.1f} points")
 
         # Social media influence scoring
-        if instagram_data:
+        if isinstance(instagram_data, dict) and 'followers' in instagram_data:
             insta_score = min(instagram_data['followers'] / 1000, 10)
             score += insta_score
             reasons.append(f"Instagram followers: +{insta_score:.1f} points")
-        if facebook_data:
-            fb_score = min(facebook_data['friends'] / 100, 5)
-            score += fb_score
-            reasons.append(f"Facebook friends: +{fb_score:.1f} points")
-        if twitter_data:
+        if isinstance(facebook_data, dict) and 'friends' in facebook_data:
+            try:
+                friends = int(facebook_data['friends']) if facebook_data['friends'] != 'Unknown' else 0
+                fb_score = min(friends / 100, 5)
+                score += fb_score
+                reasons.append(f"Facebook friends: +{fb_score:.1f} points")
+            except ValueError:
+                logging.warning(f"Invalid Facebook friends value: {facebook_data['friends']}")
+        if isinstance(twitter_data, dict) and 'followers' in twitter_data:
             twitter_score = min(twitter_data['followers'] / 1000, 5)
             score += twitter_score
             reasons.append(f"Twitter followers: +{twitter_score:.1f} points")
