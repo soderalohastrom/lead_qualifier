@@ -88,7 +88,8 @@ class LeadQualificationMachine:
         self.personal_email_domains = set(['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'])
 
     def analyze_email_domain(self, email):
-        _, domain, _ = tldextract.extract(email.split('@')[1])
+        extracted = tldextract.extract(email.split('@')[1])
+        domain = extracted.domain + '.' + extracted.suffix
         if domain not in self.personal_email_domains:
             return domain
         return None
