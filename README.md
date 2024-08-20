@@ -1,4 +1,5 @@
-# Scott's Lead Qualification - Render.com Deploy
+# Scott's Lead Qualification 
+- Render.com Deploy
 
 ## Project Overview
 
