@@ -1,4 +1,4 @@
-# Scott's Lead Qualification 
+# Lead Qualification - Social focus
 - Render.com Deploy
 
 ## Project Overview
